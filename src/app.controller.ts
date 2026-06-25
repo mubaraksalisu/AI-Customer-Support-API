@@ -1,4 +1,4 @@
-import { Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import { AppService } from './app.service';
 
 @Controller()
@@ -11,7 +11,7 @@ export class AppController {
   }
 
   @Post('/chat')
-  postChat() {
-    return this.appService.chat();
+  async Chat(@Body() body: { question: string }) {
+    return await this.appService.chat(body.question);
   }
 }
