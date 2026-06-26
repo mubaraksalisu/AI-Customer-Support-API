@@ -1,9 +1,9 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Injectable } from '@nestjs/common';
-import { systemPrompt } from './prompts';
+import { systemPrompt } from 'src/chat/prompts';
 
 @Injectable()
-export class AppService {
+export class ChatService {
   private model;
 
   constructor() {
@@ -12,10 +12,6 @@ export class AppService {
       model: 'gemini-3.1-flash-lite',
       systemInstruction: systemPrompt,
     });
-  }
-
-  getHello(): string {
-    return 'Hello World!';
   }
 
   async chat(
