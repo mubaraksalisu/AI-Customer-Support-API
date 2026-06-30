@@ -4,6 +4,8 @@ import { ChatModule } from './chat/chat.module';
 import { FaqModule } from './faq/faq.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Faq } from './faq/entities/faq.entity';
+import { OrdersModule } from './orders/orders.module';
+import { Order } from './orders/entities/order.entity';
 
 @Module({
   imports: [
@@ -15,11 +17,12 @@ import { Faq } from './faq/entities/faq.entity';
       username: process.env.DB_USER,
       password: process.env.DB_PASS,
       database: process.env.DB_NAME,
-      entities: [Faq],
+      entities: [Faq, Order],
       synchronize: true, // fine for development, turn off in production
     }),
     ChatModule,
     FaqModule,
+    OrdersModule,
   ],
 })
 export class AppModule {}
