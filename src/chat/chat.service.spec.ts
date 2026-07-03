@@ -216,6 +216,93 @@ describe('ChatService', () => {
     );
   });
 
+  it('executes check_order_status mid-stream and streams the follow-up answer', async () => {
+    faqService.findRelevant.mockResolvedValue([]);
+    ordersService.getOrderStatus.mockResolvedValue({
+      orderNumber: 'ORD-001',
+      status: 'shipped',
+    } as any);
+
+    const toolCallContent = {
+      parts: [
+        {
+          functionCall: {
+            name: 'check_order_status',
+            args: { order_number: 'ORD-001' },
+          },
+        },
+      ],
+    };
+
+    async function* toolCallStream() {
+      yield { candidates: [{ content: toolCallContent }], text: () => '' };
+    }
+    async function* answerStream() {
+      yield { text: () => 'Your order has shipped.' };
+    }
+
+    mockGenerateContentStream
+      .mockResolvedValueOnce({ stream: toolCallStream() })
+      .mockResolvedValueOnce({ stream: answerStream() });
+
+    const events: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      service.chatStream("What's the status of ORD-001?").subscribe({
+        next: (event) => events.push(event),
+        error: reject,
+        complete: resolve,
+      });
+    });
+
+    expect(ordersService.getOrderStatus).toHaveBeenCalledWith('ORD-001');
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
+    expect(events).toEqual([
+      { data: 'Your order has shipped.' },
+      { data: '[DONE]' },
+    ]);
+  });
+
+  it('falls back gracefully when the streamed tool reports the order was not found', async () => {
+    faqService.findRelevant.mockResolvedValue([]);
+    ordersService.getOrderStatus.mockResolvedValue(null);
+
+    const toolCallContent = {
+      parts: [
+        {
+          functionCall: {
+            name: 'check_order_status',
+            args: { order_number: 'ORD-999' },
+          },
+        },
+      ],
+    };
+
+    async function* toolCallStream() {
+      yield { candidates: [{ content: toolCallContent }], text: () => '' };
+    }
+    async function* answerStream() {
+      yield { text: () => 'I could not find that order.' };
+    }
+
+    mockGenerateContentStream
+      .mockResolvedValueOnce({ stream: toolCallStream() })
+      .mockResolvedValueOnce({ stream: answerStream() });
+
+    const events: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      service.chatStream('Status of ORD-999?').subscribe({
+        next: (event) => events.push(event),
+        error: reject,
+        complete: resolve,
+      });
+    });
+
+    expect(events).toEqual([
+      { data: 'I could not find that order.' },
+      { data: '[DONE]' },
+    ]);
+  });
+
   it('propagates stream errors to the observable', async () => {
     faqService.findRelevant.mockResolvedValue([]);
     mockGenerateContentStream.mockRejectedValue(new Error('boom'));
