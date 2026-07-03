@@ -28,7 +28,7 @@ describe('FaqService', () => {
         {
           provide: getRepositoryToken(Faq),
           useValue: {
-            count: jest.fn(),
+            clear: jest.fn(),
             create: jest.fn((data) => data),
             save: jest.fn(),
             query: jest.fn(),
@@ -56,21 +56,13 @@ describe('FaqService', () => {
     expect(result).toEqual([0.1, 0.2, 0.3]);
   });
 
-  it('seeds FAQ data on module init when the table is empty', async () => {
-    (repository.count as jest.Mock).mockResolvedValue(0);
+  it('clears existing FAQ rows and seeds fresh data', async () => {
     mockEmbedContent.mockResolvedValue({ embedding: { values: [0.1] } });
 
-    await service.onModuleInit();
+    await service.seedFaqs();
 
+    expect(repository.clear).toHaveBeenCalled();
     expect(repository.save).toHaveBeenCalled();
-  });
-
-  it('does not reseed when FAQ data already exists', async () => {
-    (repository.count as jest.Mock).mockResolvedValue(5);
-
-    await service.onModuleInit();
-
-    expect(repository.save).not.toHaveBeenCalled();
   });
 
   it('queries for the top-K most similar FAQs by embedding distance', async () => {
