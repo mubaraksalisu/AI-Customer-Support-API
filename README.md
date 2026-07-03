@@ -100,14 +100,10 @@ VALUES ('ORD-001', 'Jane Doe', 'shipped', 'Wireless Mouse');
 
 ### Environment variables
 
-| Variable          | Description                                   |
-| ----------------- | ---------------------------------------------- |
-| `GEMINI_API_KEY`  | API key for Google Gemini                      |
-| `DB_HOST`         | Postgres host (`localhost` with docker-compose) |
-| `DB_PORT`         | Postgres port (`5432` by default)              |
-| `DB_USER`         | Postgres user                                  |
-| `DB_PASS`         | Postgres password                              |
-| `DB_NAME`         | Postgres database name                         |
+| Variable          | Description                                                                  |
+| ----------------- | ----------------------------------------------------------------------------- |
+| `GEMINI_API_KEY`  | API key for Google Gemini                                                     |
+| `DATABASE_URL`    | Postgres connection string (e.g. `postgres://admin:admin123@localhost:5432/ai-chat-bot`; on Railway set to `${{ Postgres.DATABASE_URL }}`) |
 
 ## API
 

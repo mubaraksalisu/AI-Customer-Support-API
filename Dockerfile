@@ -30,6 +30,6 @@ USER nestjs
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- "http://localhost:${PORT:-3000}/docs" || exit 1
+  CMD wget -qO- "https://ai-customer-support-api-production.up.railway.app/docs" || exit 1
 
 CMD ["node", "dist/main"]

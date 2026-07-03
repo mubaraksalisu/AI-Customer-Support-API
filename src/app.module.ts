@@ -12,13 +12,9 @@ import { Order } from './orders/entities/order.entity';
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: process.env.DB_HOST,
-      port: parseInt(process.env.DB_PORT!),
-      username: process.env.DB_USER,
-      password: process.env.DB_PASS,
-      database: process.env.DB_NAME,
+      url: process.env.DATABASE_URL,
       entities: [Faq, Order],
-      synchronize: true, // fine for development, turn off in production
+      synchronize: false, // fine for development, turn off in production
     }),
     ChatModule,
     FaqModule,
