@@ -1,8 +1,9 @@
 import { GoogleGenerativeAI, Tool } from '@google/generative-ai';
 import { Injectable } from '@nestjs/common';
-import { systemPrompt } from 'src/chat/prompts';
-import { FaqService } from 'src/faq/faq.service';
-import { OrdersService } from 'src/orders/orders.service';
+import { Observable } from 'rxjs';
+import { systemPrompt } from './prompts';
+import { FaqService } from '../faq/faq.service';
+import { OrdersService } from '../orders/orders.service';
 
 @Injectable()
 export class ChatService {
@@ -117,5 +118,38 @@ export class ChatService {
       tool_used: toolUsed,
       context_used: faqs.map((f) => f.question),
     };
+  }
+
+  chatStream(question: string): Observable<MessageEvent> {
+    return new Observable((subscriber) => {
+      this.streamResponse(question, subscriber);
+    });
+  }
+
+  private async streamResponse(question: string, subscriber: any) {
+    try {
+      const relevantFaqs = await this.faqService.findRelevant(question, 3);
+      const context = relevantFaqs.length
+        ? relevantFaqs
+            .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
+            .join('\n\n')
+        : 'No relevant information found.';
+
+      const prompt = `CONTEXT:\n${context}\n\nCUSTOMER QUESTION:\n${question}`;
+
+      const result = await this.model.generateContentStream(prompt);
+
+      for await (const chunk of result.stream) {
+        const text = chunk.text();
+        if (text) {
+          subscriber.next({ data: text } as MessageEvent);
+        }
+      }
+
+      subscriber.next({ data: '[DONE]' } as MessageEvent);
+      subscriber.complete();
+    } catch (error) {
+      subscriber.error(error);
+    }
   }
 }
