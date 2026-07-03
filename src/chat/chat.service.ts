@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { systemPrompt } from './prompts';
 import { FaqService } from '../faq/faq.service';
 import { OrdersService } from '../orders/orders.service';
+import { ChatResponseDto } from './dto/chat-response.dto';
 
 @Injectable()
 export class ChatService {
@@ -43,7 +44,7 @@ export class ChatService {
     });
   }
 
-  async chat(question: string): Promise<object> {
+  async chat(question: string): Promise<ChatResponseDto> {
     // 1. Retrieve relevant FAQ entries
     const relevantFaqs = await this.faqService.findRelevant(question, 3);
 
@@ -104,13 +105,19 @@ export class ChatService {
     return this.parseResponse(raw, relevantFaqs, false);
   }
 
-  private parseResponse(raw: string, faqs: any[], toolUsed: boolean): object {
+  private parseResponse(
+    raw: string,
+    faqs: any[],
+    toolUsed: boolean,
+  ): ChatResponseDto {
     const answer =
       raw.match(/<answer>([\s\S]*?)<\/answer>/)?.[1]?.trim() ??
       "I don't have that information. Please contact us directly for help.";
 
-    const confidence =
-      raw.match(/<confidence>([\s\S]*?)<\/confidence>/)?.[1]?.trim() ?? 'low';
+    const confidence = (raw.match(/<confidence>([\s\S]*?)<\/confidence>/)?.[1]?.trim() ===
+    'high'
+      ? 'high'
+      : 'low') as 'high' | 'low';
 
     return {
       answer,
