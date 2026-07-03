@@ -1,98 +1,156 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# AI Chat Bot
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A NestJS backend for an AI-powered customer support agent. It answers customer
+questions using **retrieval-augmented generation (RAG)** over a business FAQ
+knowledge base, and can call a **tool** to look up real order status from a
+Postgres database — all backed by Google Gemini.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## How it works
 
-## Description
+1. A customer question comes in through `POST /chat`.
+2. The question is embedded and matched against FAQ entries stored in Postgres
+   using [pgvector](https://github.com/pgvector/pgvector) cosine similarity —
+   this is the retrieval step.
+3. The top matching FAQs are injected into the prompt as context, along with a
+   system prompt that constrains the model to only answer from that context.
+4. If the customer is asking about an order, Gemini calls the
+   `check_order_status` tool instead of answering directly. The server executes
+   the real lookup against the `orders` table and sends the result back to the
+   model for a final answer.
+5. The model's response is parsed out of `<answer>`/`<confidence>` tags and
+   returned as structured JSON.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ npm install
+```
+Customer question
+      │
+      ▼
+FaqService.findRelevant()  ──▶  pgvector similarity search (Postgres)
+      │
+      ▼
+ChatService.chat()  ──▶  Gemini (with FAQ context + check_order_status tool)
+      │                              │
+      │                              ▼ (if tool call requested)
+      │                        OrdersService.getOrderStatus()  ──▶  Postgres
+      │                              │
+      ◀──────────────────────────────┘
+      ▼
+{ answer, confidence, tool_used, context_used }
 ```
 
-## Compile and run the project
+## Features
 
-```bash
-# development
-$ npm run start
+- **RAG-based FAQ answering** — FAQ entries are embedded with Gemini
+  (`gemini-embedding-001`) and stored in Postgres as vectors; retrieval uses a
+  pgvector `<=>` (cosine distance) query.
+- **Tool/function calling** — the model can invoke `check_order_status` to look
+  up a real order by number, rather than guessing.
+- **Streaming responses** — `GET /chat/stream` streams the model's answer
+  token-by-token over Server-Sent Events.
+- **Input validation** — request bodies/query params are validated with
+  `class-validator` via a global `ValidationPipe`.
+- **Grounded responses** — the system prompt forces the model to say "I don't
+  have that information" rather than hallucinate, and to self-report a
+  confidence level.
 
-# watch mode
-$ npm run start:dev
+## Tech stack
 
-# production mode
-$ npm run start:prod
+- [NestJS](https://nestjs.com/) + TypeScript
+- [PostgreSQL](https://www.postgresql.org/) + [pgvector](https://github.com/pgvector/pgvector) via TypeORM
+- [Google Gemini API](https://ai.google.dev/) (`@google/generative-ai`) for chat, tool calling, and embeddings
+- Jest + Supertest for unit and integration tests
+
+## Project structure
+
+```
+src/
+├── chat/           # /chat controller, RAG + tool-calling orchestration, DTOs
+├── faq/             # FAQ entity, embedding + pgvector similarity search
+├── orders/          # Order entity, order-status lookup used by the tool call
+└── main.ts          # app bootstrap, global ValidationPipe
+docker/
+└── init/            # SQL run on first Postgres container start (enables pgvector)
+docker-compose.yml   # Postgres + pgvector for local development
 ```
 
-## Run tests
+## Getting started
+
+### Prerequisites
+
+- Node.js 20+
+- Docker (for Postgres + pgvector), or a Postgres 16+ instance with the
+  `vector` extension available
+- A [Gemini API key](https://aistudio.google.com/apikey)
+
+### Setup
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm install
+cp .env.example .env   # then fill in GEMINI_API_KEY
+docker compose up -d   # starts Postgres with pgvector enabled
+npm run start:dev
 ```
 
-## Deployment
+On first boot, `FaqService` seeds the FAQ table automatically. The `orders`
+table starts empty — to test the `check_order_status` tool, insert a row:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+```sql
+INSERT INTO orders (order_number, customer_name, status, item)
+VALUES ('ORD-001', 'Jane Doe', 'shipped', 'Wireless Mouse');
+```
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Environment variables
+
+| Variable          | Description                                   |
+| ----------------- | ---------------------------------------------- |
+| `GEMINI_API_KEY`  | API key for Google Gemini                      |
+| `DB_HOST`         | Postgres host (`localhost` with docker-compose) |
+| `DB_PORT`         | Postgres port (`5432` by default)              |
+| `DB_USER`         | Postgres user                                  |
+| `DB_PASS`         | Postgres password                              |
+| `DB_NAME`         | Postgres database name                         |
+
+## API
+
+Interactive OpenAPI docs are served at `http://localhost:3000/docs` once the
+app is running (raw spec at `/docs-json`).
+
+### `POST /chat`
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+curl -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"What are your business hours?"}'
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+```json
+{
+  "answer": "We are open Monday to Saturday, 8am to 6pm WAT.",
+  "confidence": "high",
+  "tool_used": false,
+  "context_used": ["What are your business hours?", "..."]
+}
+```
 
-## Resources
+### `GET /chat/stream`
 
-Check out a few resources that may come in handy when working with NestJS:
+Streams the answer as Server-Sent Events, ending with a `[DONE]` event.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+curl -N "http://localhost:3000/chat/stream?question=What+are+your+delivery+options"
+```
 
-## Support
+## Testing
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+npm test          # unit tests (services, mocked Gemini/DB)
+npm run test:e2e  # integration tests (HTTP + validation pipeline)
+npm run test:cov  # coverage report
+```
 
-## Stay in touch
+## Known limitations
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+This is a portfolio/demo project, not production-hardened:
 
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- No authentication/authorization on the chat endpoints.
+- No rate limiting on an endpoint that calls a paid external API.
+- `synchronize: true` is used for schema sync instead of migrations.
