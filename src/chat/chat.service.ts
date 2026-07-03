@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI, Tool } from '@google/generative-ai';
 import { Injectable } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { systemPrompt } from './prompts';
+import { systemPrompt, streamSystemPrompt } from './prompts';
 import { FaqService } from '../faq/faq.service';
 import { OrdersService } from '../orders/orders.service';
 import { ChatResponseDto } from './dto/chat-response.dto';
@@ -144,7 +144,10 @@ export class ChatService {
 
       const prompt = `CONTEXT:\n${context}\n\nCUSTOMER QUESTION:\n${question}`;
 
-      const result = await this.model.generateContentStream(prompt);
+      const result = await this.model.generateContentStream({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        systemInstruction: streamSystemPrompt,
+      });
 
       for await (const chunk of result.stream) {
         const text = chunk.text();

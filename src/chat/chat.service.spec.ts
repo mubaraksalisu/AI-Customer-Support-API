@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ChatService } from './chat.service';
 import { FaqService } from '../faq/faq.service';
 import { OrdersService } from '../orders/orders.service';
+import { streamSystemPrompt } from './prompts';
 
 const mockGenerateContent = jest.fn();
 const mockGenerateContentStream = jest.fn();
@@ -192,6 +193,27 @@ describe('ChatService', () => {
       { data: 'world' },
       { data: '[DONE]' },
     ]);
+  });
+
+  it('overrides the system instruction so streamed output has no XML tags', async () => {
+    faqService.findRelevant.mockResolvedValue([]);
+
+    async function* fakeStream() {
+      yield { text: () => 'plain answer text' };
+    }
+    mockGenerateContentStream.mockResolvedValue({ stream: fakeStream() });
+
+    await new Promise<void>((resolve, reject) => {
+      service.chatStream('Hi').subscribe({
+        next: () => undefined,
+        error: reject,
+        complete: resolve,
+      });
+    });
+
+    expect(mockGenerateContentStream).toHaveBeenCalledWith(
+      expect.objectContaining({ systemInstruction: streamSystemPrompt }),
+    );
   });
 
   it('propagates stream errors to the observable', async () => {
