@@ -18,7 +18,7 @@ async function bootstrap() {
   );
 
   const config = new DocumentBuilder()
-    .setTitle('AI Chat Bot')
+    .setTitle('AI Customer Support')
     .setDescription(
       'RAG + tool-calling customer support chat API backed by Google Gemini and pgvector.',
     )
