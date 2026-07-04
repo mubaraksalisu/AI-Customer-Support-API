@@ -3,6 +3,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Logger,
   Post,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -12,6 +13,8 @@ import { FaqService } from './faq.service';
 
 @Controller('faq')
 export class FaqController {
+  private readonly logger = new Logger(FaqController.name);
+
   constructor(private readonly faqService: FaqService) {}
 
   // Lets FAQ data be reseeded on hosts (Render/Railway free tiers, etc.)
@@ -22,10 +25,12 @@ export class FaqController {
   async seed(@Headers('x-seed-secret') providedSecret?: string) {
     const expectedSecret = process.env.FAQ_SEED_SECRET;
     if (!expectedSecret || !isMatchingSecret(providedSecret, expectedSecret)) {
+      this.logger.warn('Rejected FAQ seed request with invalid secret.');
       throw new UnauthorizedException();
     }
 
     await this.faqService.seedFaqs();
+    this.logger.log('FAQ seeding complete.');
     return { message: 'FAQ seeding complete.' };
   }
 }
