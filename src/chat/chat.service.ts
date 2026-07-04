@@ -117,12 +117,13 @@ export class ChatService {
   }
 
   private async executeTool(name: string, args: any): Promise<any> {
-    let toolResult: any;
     if (name === 'check_order_status') {
       const order = await this.ordersService.getOrderStatus(args.order_number);
-      toolResult = order ?? { error: 'Order not found' };
+      return order ?? { error: 'Order not found' };
     }
-    return toolResult;
+
+    this.logger.warn(`Model requested unknown tool: ${name}`);
+    return { error: `Unknown tool: ${name}` };
   }
 
   private parseResponse(
