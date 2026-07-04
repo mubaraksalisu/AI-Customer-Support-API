@@ -25,7 +25,7 @@ function validateEnv(env: Record<string, unknown>) {
       type: 'postgres',
       url: process.env.DATABASE_URL,
       entities: [Faq, Order],
-      synchronize: true, // fine for development, turn off in production
+      synchronize: false,
     }),
     ChatModule,
     FaqModule,
