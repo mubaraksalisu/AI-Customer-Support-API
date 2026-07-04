@@ -44,6 +44,7 @@ export class ChatService {
 
     this.model = genAi.getGenerativeModel({
       model: 'gemini-3.1-flash-lite',
+      generationConfig: { temperature: 0.2 },
       tools,
       systemInstruction: systemPrompt,
     });
