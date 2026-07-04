@@ -1,5 +1,9 @@
 import { GoogleGenerativeAI, Tool } from '@google/generative-ai';
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { systemPrompt, streamSystemPrompt } from './prompts';
 import { FaqService } from '../faq/faq.service';
@@ -8,6 +12,7 @@ import { ChatResponseDto } from './dto/chat-response.dto';
 
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
   private model;
 
   constructor(
@@ -45,58 +50,70 @@ export class ChatService {
   }
 
   async chat(question: string): Promise<ChatResponseDto> {
-    // 1. Retrieve relevant FAQ entries
-    const relevantFaqs = await this.faqService.findRelevant(question, 3);
+    try {
+      // 1. Retrieve relevant FAQ entries
+      const relevantFaqs = await this.faqService.findRelevant(question, 3);
 
-    // 2. Build context string from retrieved FAQs
-    const context = relevantFaqs.length
-      ? relevantFaqs.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n')
-      : 'No relevant information found.';
+      // 2. Build context string from retrieved FAQs
+      const context = relevantFaqs.length
+        ? relevantFaqs
+            .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
+            .join('\n\n')
+        : 'No relevant information found.';
 
-    // 3. Inject context into the prompt
-    const prompt = `CONTEXT:\n${context}\n\nCUSTOMER QUESTION:\n${question}`;
+      // 3. Inject context into the prompt
+      const prompt = `CONTEXT:\n${context}\n\nCUSTOMER QUESTION:\n${question}`;
 
-    // 2. First model call — model may respond or request a tool call
-    const result = await this.model.generateContent(prompt);
-    const response = result.response;
-    const candidate = response.candidates?.[0];
-    const parts = candidate?.content?.parts ?? [];
+      // 2. First model call — model may respond or request a tool call
+      const result = await this.model.generateContent(prompt);
+      const response = result.response;
+      const candidate = response.candidates?.[0];
+      const parts = candidate?.content?.parts ?? [];
 
-    // 3. Check if model wants to call a tool
-    const toolCallPart = parts.find((p) => p.functionCall);
+      // 3. Check if model wants to call a tool
+      const toolCallPart = parts.find((p) => p.functionCall);
 
-    if (toolCallPart?.functionCall) {
-      const { name, args } = toolCallPart.functionCall;
+      if (toolCallPart?.functionCall) {
+        const { name, args } = toolCallPart.functionCall;
 
-      // 4. Execute the real function
-      const toolResult = await this.executeTool(name, args);
+        // 4. Execute the real function
+        const toolResult = await this.executeTool(name, args);
 
-      // 5. Send tool result back to model for final answer
-      const finalResult = await this.model.generateContent({
-        contents: [
-          { role: 'user', parts: [{ text: prompt }] },
-          candidate.content,
-          {
-            role: 'user',
-            parts: [
-              {
-                functionResponse: {
-                  name,
-                  response: toolResult,
+        // 5. Send tool result back to model for final answer
+        const finalResult = await this.model.generateContent({
+          contents: [
+            { role: 'user', parts: [{ text: prompt }] },
+            candidate.content,
+            {
+              role: 'user',
+              parts: [
+                {
+                  functionResponse: {
+                    name,
+                    response: toolResult,
+                  },
                 },
-              },
-            ],
-          },
-        ],
-      });
+              ],
+            },
+          ],
+        });
 
-      const raw = finalResult.response.text();
-      return this.parseResponse(raw, relevantFaqs, true);
+        const raw = finalResult.response.text();
+        return this.parseResponse(raw, relevantFaqs, true);
+      }
+
+      // 6. No tool call — parse regular response
+      const raw = response.text();
+      return this.parseResponse(raw, relevantFaqs, false);
+    } catch (error) {
+      this.logger.error(
+        `Failed to answer chat question: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      throw new ServiceUnavailableException(
+        'Unable to process your question right now. Please try again shortly.',
+      );
     }
-
-    // 6. No tool call — parse regular response
-    const raw = response.text();
-    return this.parseResponse(raw, relevantFaqs, false);
   }
 
   private async executeTool(name: string, args: any): Promise<any> {
@@ -195,7 +212,13 @@ export class ChatService {
       subscriber.next({ data: '[DONE]' } as MessageEvent);
       subscriber.complete();
     } catch (error) {
-      subscriber.error(error);
+      this.logger.error(
+        `Failed to stream chat answer: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      subscriber.error(
+        new Error('Unable to process your question right now. Please try again shortly.'),
+      );
     }
   }
 }
