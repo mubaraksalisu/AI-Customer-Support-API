@@ -5,15 +5,18 @@ import { Repository } from 'typeorm';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
-import { Faq } from '../src/faq/entities/faq.entity';
 import { Order } from '../src/orders/entities/order.entity';
 import { FaqService } from '../src/faq/faq.service';
+import { ChatResponseDto } from '../src/chat/dto/chat-response.dto';
 
 const mockEmbedContent = jest.fn();
 const mockGenerateContent = jest.fn();
 const mockGenerateContentStream = jest.fn();
 
 jest.mock('@google/generative-ai', () => ({
+  ...jest.requireActual<typeof import('@google/generative-ai')>(
+    '@google/generative-ai',
+  ),
   GoogleGenerativeAI: jest.fn().mockImplementation(() => ({
     getGenerativeModel: jest
       .fn()
@@ -39,7 +42,6 @@ jest.mock('@google/generative-ai', () => ({
  */
 describe('AI Chat Bot (e2e)', () => {
   let app: INestApplication<App>;
-  let faqRepository: Repository<Faq>;
   let orderRepository: Repository<Order>;
 
   beforeAll(async () => {
@@ -60,7 +62,6 @@ describe('AI Chat Bot (e2e)', () => {
       }),
     );
 
-    faqRepository = moduleFixture.get(getRepositoryToken(Faq));
     orderRepository = moduleFixture.get(getRepositoryToken(Order));
 
     // Reset to a known state so this test doesn't depend on whatever is
@@ -114,7 +115,8 @@ describe('AI Chat Bot (e2e)', () => {
       context_used: expect.any(Array),
       sessionId: expect.any(String),
     });
-    expect(res.body.context_used.length).toBeGreaterThan(0);
+    const body = res.body as ChatResponseDto;
+    expect(body.context_used.length).toBeGreaterThan(0);
   });
 
   it('executes check_order_status against the real orders table', async () => {
@@ -131,7 +133,10 @@ describe('AI Chat Bot (e2e)', () => {
 
     mockGenerateContent
       .mockResolvedValueOnce({
-        response: { candidates: [{ content: toolCallContent }], text: () => '' },
+        response: {
+          candidates: [{ content: toolCallContent }],
+          text: () => '',
+        },
       })
       .mockResolvedValueOnce({
         response: {
@@ -159,7 +164,7 @@ describe('AI Chat Bot (e2e)', () => {
   });
 
   it('streams an answer over /chat/stream', async () => {
-    async function* fakeStream() {
+    function* fakeStream() {
       yield { text: () => 'Hello ' };
       yield { text: () => 'world' };
     }

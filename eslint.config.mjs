@@ -32,4 +32,16 @@ export default tseslint.config(
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },
+  {
+    // Jest's `expect.any()`/`expect.objectContaining()` are typed loosely
+    // (effectively `any`), and asserting on mock methods (e.g.
+    // `expect(repo.save).toHaveBeenCalledWith(...)`) trips `unbound-method`
+    // even though jest.fn() mocks don't rely on `this`. Both are false
+    // positives specific to test code, not real type-safety issues.
+    files: ['**/*.spec.ts', 'test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+    },
+  },
 );

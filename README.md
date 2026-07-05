@@ -1,5 +1,7 @@
 # AI Chat Bot
 
+[![CI](https://github.com/mubaraksalisu/AI-Customer-Support-API/actions/workflows/ci.yml/badge.svg)](https://github.com/mubaraksalisu/AI-Customer-Support-API/actions/workflows/ci.yml)
+
 A NestJS backend for an AI-powered customer support agent. It answers customer
 questions using **retrieval-augmented generation (RAG)** over a business FAQ
 knowledge base, can call a **tool** to look up real order status from a
@@ -110,6 +112,15 @@ docker-compose.yml   # Postgres + pgvector for local development
 npm install
 cp .env.example .env   # then fill in GEMINI_API_KEY and FAQ_SEED_SECRET
 docker compose up -d   # starts Postgres with pgvector enabled
+```
+
+There are no migrations yet, so a fresh database has no tables. For the
+**first run only**, set `DB_SYNCHRONIZE=true` in `.env` so TypeORM creates
+the schema, then set it back to `false` (or unset it):
+
+```bash
+npm run start:dev   # with DB_SYNCHRONIZE=true, creates the schema, then Ctrl+C
+# set DB_SYNCHRONIZE back to false in .env
 npm run start:dev
 ```
 
@@ -142,6 +153,7 @@ VALUES ('ORD-001', 'Jane Doe', 'shipped', 'Wireless Mouse');
 | `GEMINI_API_KEY`   | API key for Google Gemini                                                     |
 | `DATABASE_URL`     | Postgres connection string (e.g. `postgres://admin:admin123@localhost:5432/ai-chat-bot`; on Railway set to `${{ Postgres.DATABASE_URL }}`) |
 | `FAQ_SEED_SECRET`  | Secret required to call `POST /faq/seed` in environments with no shell access. Set a long random value in production. |
+| `DB_SYNCHRONIZE`   | Set to `true` to let TypeORM create the schema on a fresh database (no migrations exist yet). Defaults to `false`; leave it off outside of first-run setup. |
 
 ## API
 
@@ -208,6 +220,7 @@ Re-seeds the FAQ table. Requires an `x-seed-secret` header matching
 ## Testing
 
 ```bash
+npm run lint      # eslint (type-aware, auto-fixes on save)
 npm test          # unit tests (services, mocked Gemini/DB)
 npm run test:e2e  # integration tests (HTTP + validation pipeline)
 npm run test:cov  # coverage report
@@ -215,6 +228,10 @@ npm run test:cov  # coverage report
 
 `npm run test:e2e` boots the real `AppModule` against Postgres (only the
 Gemini SDK is mocked), so `docker compose up -d` must be running first.
+
+CI (`.github/workflows/ci.yml`) runs lint, build, unit, and e2e tests on
+every push/PR to `main` against a fresh Postgres service container (with
+`DB_SYNCHRONIZE=true`, since that container has no schema to start with).
 
 ## Known limitations
 

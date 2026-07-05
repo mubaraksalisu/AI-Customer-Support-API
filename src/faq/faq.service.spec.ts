@@ -29,7 +29,7 @@ describe('FaqService', () => {
           provide: getRepositoryToken(Faq),
           useValue: {
             clear: jest.fn(),
-            create: jest.fn((data) => data),
+            create: jest.fn((data: Partial<Faq>) => data),
             save: jest.fn(),
             query: jest.fn(),
           },

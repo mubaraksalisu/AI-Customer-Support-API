@@ -6,13 +6,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Faq } from './entities/faq.entity';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
 import { FAQ_DATA } from './faq-data';
 
 @Injectable()
 export class FaqService {
   private readonly logger = new Logger(FaqService.name);
-  private embeddingModel;
+  private embeddingModel: GenerativeModel;
 
   constructor(
     @InjectRepository(Faq)

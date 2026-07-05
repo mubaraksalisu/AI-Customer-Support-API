@@ -36,7 +36,7 @@ describe('OrdersService', () => {
       status: 'shipped',
       item: 'Widget',
       createdAt,
-    } as Order);
+    });
 
     const result = await service.getOrderStatus('ORD-001');
 

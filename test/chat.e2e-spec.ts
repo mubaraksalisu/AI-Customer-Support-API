@@ -5,6 +5,7 @@ import { App } from 'supertest/types';
 import { ChatController } from '../src/chat/chat.controller';
 import { ChatService } from '../src/chat/chat.service';
 import { ConversationsService } from '../src/conversations/conversations.service';
+import { ChatResponseDto } from '../src/chat/dto/chat-response.dto';
 
 describe('Chat validation (e2e)', () => {
   let app: INestApplication<App>;
@@ -57,7 +58,7 @@ describe('Chat validation (e2e)', () => {
       .send({ question: 'What are your business hours?' })
       .expect(201)
       .expect((res) => {
-        expect(res.body.answer).toBe('mocked answer');
+        expect((res.body as ChatResponseDto).answer).toBe('mocked answer');
       });
   });
 

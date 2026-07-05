@@ -1,21 +1,41 @@
-import { GoogleGenerativeAI, Tool } from '@google/generative-ai';
+import {
+  Content,
+  EnhancedGenerateContentResponse,
+  FunctionCall,
+  GenerativeModel,
+  GoogleGenerativeAI,
+  Part,
+  SchemaType,
+  Tool,
+} from '@google/generative-ai';
 import {
   Injectable,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
+import { Observable, Subscriber } from 'rxjs';
 import { systemPrompt, streamSystemPrompt } from './prompts';
 import { FaqService } from '../faq/faq.service';
+import { Faq } from '../faq/entities/faq.entity';
 import { OrdersService } from '../orders/orders.service';
 import { ChatResponseDto } from './dto/chat-response.dto';
 import { ConversationsService } from '../conversations/conversations.service';
+
+function isFunctionCallPart(
+  part: Part,
+): part is Part & { functionCall: FunctionCall } {
+  return !!part.functionCall;
+}
+
+type StreamRoundOutcome =
+  | { text: string }
+  | { text: string; content: Content; functionCall: FunctionCall };
 
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
   private readonly MAX_TOOL_ROUNDS = 5;
-  private model;
+  private model: GenerativeModel;
 
   constructor(
     private readonly faqService: FaqService,
@@ -31,10 +51,10 @@ export class ChatService {
             description:
               'Looks up the status of a customer order by order number. Call this when the customer asks about their order status.',
             parameters: {
-              type: 'object' as any,
+              type: SchemaType.OBJECT,
               properties: {
                 order_number: {
-                  type: 'string' as any,
+                  type: SchemaType.STRING,
                   description: 'The order number e.g. ORD-001',
                 },
               },
@@ -71,7 +91,7 @@ export class ChatService {
 
       // 3. Build contents array: history + new message with context
       const currentPrompt = `CONTEXT:\n${context}\n\nCUSTOMER QUESTION:\n${question}`;
-      const contents: any[] = [
+      const contents: Content[] = [
         ...history,
         { role: 'user', parts: [{ text: currentPrompt }] },
       ];
@@ -85,7 +105,7 @@ export class ChatService {
         const result = await this.model.generateContent({ contents });
         const candidate = result.response.candidates?.[0];
         const parts = candidate?.content?.parts ?? [];
-        const toolCallParts = parts.filter((p) => p.functionCall);
+        const toolCallParts = parts.filter(isFunctionCallPart);
 
         if (toolCallParts.length === 0) {
           const raw = result.response.text();
@@ -95,16 +115,20 @@ export class ChatService {
           await this.conversationService.saveMessage(
             sessionId,
             'model',
-            parsed['answer'] as string,
+            parsed.answer,
           );
 
           return parsed;
         }
 
+        if (!candidate) {
+          break;
+        }
+
         toolWasUsed = true;
         contents.push(candidate.content);
 
-        const functionResponseParts: any = [];
+        const functionResponseParts: Part[] = [];
         for (const part of toolCallParts) {
           const { name, args } = part.functionCall;
           const toolResult = await this.executeTool(name, args);
@@ -132,9 +156,10 @@ export class ChatService {
     }
   }
 
-  private async executeTool(name: string, args: any): Promise<any> {
+  private async executeTool(name: string, args: object): Promise<object> {
     if (name === 'check_order_status') {
-      const order = await this.ordersService.getOrderStatus(args.order_number);
+      const { order_number: orderNumber } = args as { order_number: string };
+      const order = await this.ordersService.getOrderStatus(orderNumber);
       return order ?? { error: 'Order not found' };
     }
 
@@ -144,18 +169,17 @@ export class ChatService {
 
   private parseResponse(
     raw: string,
-    faqs: any[],
+    faqs: Faq[],
     toolUsed: boolean,
   ): Omit<ChatResponseDto, 'sessionId'> {
     const answer =
       raw.match(/<answer>([\s\S]*?)<\/answer>/)?.[1]?.trim() ??
       "I don't have that information. Please contact us directly for help.";
 
-    const confidence = (
+    const confidence =
       raw.match(/<confidence>([\s\S]*?)<\/confidence>/)?.[1]?.trim() === 'high'
         ? 'high'
-        : 'low'
-    ) as 'high' | 'low';
+        : 'low';
 
     return {
       answer,
@@ -167,23 +191,19 @@ export class ChatService {
 
   chatStream(question: string, sessionId: string): Observable<MessageEvent> {
     return new Observable((subscriber) => {
-      this.streamResponse(question, sessionId, subscriber);
+      void this.streamResponse(question, sessionId, subscriber);
     });
   }
 
   private async forwardTextChunks(
-    stream: AsyncGenerator<any>,
-    subscriber: any,
-  ): Promise<{
-    text: string;
-    content?: any;
-    functionCall?: { name: string; args: any };
-  }> {
+    stream: AsyncGenerator<EnhancedGenerateContentResponse>,
+    subscriber: Subscriber<MessageEvent>,
+  ): Promise<StreamRoundOutcome> {
     let text = '';
     for await (const chunk of stream) {
       const content = chunk.candidates?.[0]?.content;
-      const toolPart = content?.parts?.find((p: any) => p.functionCall);
-      if (toolPart) {
+      const toolPart = content?.parts.find(isFunctionCallPart);
+      if (content && toolPart) {
         return { text, content, functionCall: toolPart.functionCall };
       }
 
@@ -199,7 +219,7 @@ export class ChatService {
   private async streamResponse(
     question: string,
     sessionId: string,
-    subscriber: any,
+    subscriber: Subscriber<MessageEvent>,
   ) {
     try {
       subscriber.next({ data: sessionId, type: 'session' } as MessageEvent);
@@ -217,7 +237,7 @@ export class ChatService {
 
       // 3. Build contents array: history + new message with context
       const currentPrompt = `CONTEXT:\n${context}\n\nCUSTOMER QUESTION:\n${question}`;
-      const contents: any[] = [
+      const contents: Content[] = [
         ...history,
         { role: 'user', parts: [{ text: currentPrompt }] },
       ];
@@ -234,13 +254,10 @@ export class ChatService {
           systemInstruction: streamSystemPrompt,
         });
 
-        const outcome = await this.forwardTextChunks(
-          result.stream,
-          subscriber,
-        );
+        const outcome = await this.forwardTextChunks(result.stream, subscriber);
         answerText += outcome.text;
 
-        if (!outcome.functionCall) {
+        if (!('functionCall' in outcome)) {
           finished = true;
           break;
         }

@@ -28,7 +28,10 @@ function validateEnv(env: Record<string, unknown>) {
       type: 'postgres',
       url: process.env.DATABASE_URL,
       entities: [Faq, Order, Conversation],
-      synchronize: false,
+      // Off by default so shared dev/prod databases can't drift from
+      // unreviewed schema changes. Set DB_SYNCHRONIZE=true to create the
+      // schema on a fresh database (first run only, no migrations exist yet).
+      synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
     ChatModule,
     FaqModule,

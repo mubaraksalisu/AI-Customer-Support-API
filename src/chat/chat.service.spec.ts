@@ -9,6 +9,9 @@ const mockGenerateContent = jest.fn();
 const mockGenerateContentStream = jest.fn();
 
 jest.mock('@google/generative-ai', () => ({
+  ...jest.requireActual<typeof import('@google/generative-ai')>(
+    '@google/generative-ai',
+  ),
   GoogleGenerativeAI: jest.fn().mockImplementation(() => ({
     getGenerativeModel: jest.fn().mockReturnValue({
       generateContent: mockGenerateContent,
@@ -76,7 +79,7 @@ describe('ChatService', () => {
   it('includes retrieved FAQ questions in context_used', async () => {
     faqService.findRelevant.mockResolvedValue([
       { id: 1, question: 'What are your hours?', answer: '9-5', embedding: '' },
-    ] as any);
+    ]);
     mockGenerateContent.mockResolvedValue({
       response: {
         candidates: [{ content: { parts: [{ text: 'irrelevant' }] } }],
@@ -84,7 +87,7 @@ describe('ChatService', () => {
       },
     });
 
-    const result: any = await service.chat('What are your hours?', 'session-1');
+    const result = await service.chat('What are your hours?', 'session-1');
 
     expect(result.context_used).toEqual(['What are your hours?']);
   });
@@ -94,7 +97,7 @@ describe('ChatService', () => {
     ordersService.getOrderStatus.mockResolvedValue({
       orderNumber: 'ORD-001',
       status: 'shipped',
-    } as any);
+    });
 
     const toolCallContent = {
       parts: [
@@ -109,7 +112,10 @@ describe('ChatService', () => {
 
     mockGenerateContent
       .mockResolvedValueOnce({
-        response: { candidates: [{ content: toolCallContent }], text: () => '' },
+        response: {
+          candidates: [{ content: toolCallContent }],
+          text: () => '',
+        },
       })
       .mockResolvedValueOnce({
         response: {
@@ -149,7 +155,10 @@ describe('ChatService', () => {
 
     mockGenerateContent
       .mockResolvedValueOnce({
-        response: { candidates: [{ content: toolCallContent }], text: () => '' },
+        response: {
+          candidates: [{ content: toolCallContent }],
+          text: () => '',
+        },
       })
       .mockResolvedValueOnce({
         response: {
@@ -171,13 +180,17 @@ describe('ChatService', () => {
   it('defaults to the fallback answer and low confidence when tags are missing', async () => {
     faqService.findRelevant.mockResolvedValue([]);
     mockGenerateContent.mockResolvedValue({
-      response: { candidates: [], text: () => 'unstructured text with no tags' },
+      response: {
+        candidates: [],
+        text: () => 'unstructured text with no tags',
+      },
     });
 
     const result = await service.chat('gibberish', 'session-1');
 
     expect(result).toEqual({
-      answer: "I don't have that information. Please contact us directly for help.",
+      answer:
+        "I don't have that information. Please contact us directly for help.",
       confidence: 'low',
       tool_used: false,
       context_used: [],
@@ -187,7 +200,7 @@ describe('ChatService', () => {
   it('streams chunks and emits [DONE] on completion', async () => {
     faqService.findRelevant.mockResolvedValue([]);
 
-    async function* fakeStream() {
+    function* fakeStream() {
       yield { text: () => 'Hello ' };
       yield { text: () => 'world' };
     }
@@ -223,7 +236,7 @@ describe('ChatService', () => {
   it('overrides the system instruction so streamed output has no XML tags', async () => {
     faqService.findRelevant.mockResolvedValue([]);
 
-    async function* fakeStream() {
+    function* fakeStream() {
       yield { text: () => 'plain answer text' };
     }
     mockGenerateContentStream.mockResolvedValue({ stream: fakeStream() });
@@ -246,7 +259,7 @@ describe('ChatService', () => {
     ordersService.getOrderStatus.mockResolvedValue({
       orderNumber: 'ORD-001',
       status: 'shipped',
-    } as any);
+    });
 
     const toolCallContent = {
       parts: [
@@ -259,10 +272,10 @@ describe('ChatService', () => {
       ],
     };
 
-    async function* toolCallStream() {
+    function* toolCallStream() {
       yield { candidates: [{ content: toolCallContent }], text: () => '' };
     }
-    async function* answerStream() {
+    function* answerStream() {
       yield { text: () => 'Your order has shipped.' };
     }
 
@@ -305,10 +318,10 @@ describe('ChatService', () => {
       ],
     };
 
-    async function* toolCallStream() {
+    function* toolCallStream() {
       yield { candidates: [{ content: toolCallContent }], text: () => '' };
     }
-    async function* answerStream() {
+    function* answerStream() {
       yield { text: () => 'I could not find that order.' };
     }
 
@@ -356,7 +369,7 @@ describe('ChatService', () => {
       { role: 'model', parts: [{ text: 'previous answer' }] },
     ]);
 
-    async function* fakeStream() {
+    function* fakeStream() {
       yield { text: () => 'follow-up answer' };
     }
     mockGenerateContentStream.mockResolvedValue({ stream: fakeStream() });
@@ -383,8 +396,14 @@ describe('ChatService', () => {
   it('loops through multiple tool-call rounds while streaming, like chat() does', async () => {
     faqService.findRelevant.mockResolvedValue([]);
     ordersService.getOrderStatus
-      .mockResolvedValueOnce({ orderNumber: 'ORD-001', status: 'shipped' } as any)
-      .mockResolvedValueOnce({ orderNumber: 'ORD-002', status: 'delivered' } as any);
+      .mockResolvedValueOnce({
+        orderNumber: 'ORD-001',
+        status: 'shipped',
+      })
+      .mockResolvedValueOnce({
+        orderNumber: 'ORD-002',
+        status: 'delivered',
+      });
 
     const toolCall = (orderNumber: string) => ({
       parts: [
@@ -397,10 +416,13 @@ describe('ChatService', () => {
       ],
     });
 
-    async function* toolCallStream(orderNumber: string) {
-      yield { candidates: [{ content: toolCall(orderNumber) }], text: () => '' };
+    function* toolCallStream(orderNumber: string) {
+      yield {
+        candidates: [{ content: toolCall(orderNumber) }],
+        text: () => '',
+      };
     }
-    async function* answerStream() {
+    function* answerStream() {
       yield { text: () => 'Both orders found.' };
     }
 
@@ -411,13 +433,11 @@ describe('ChatService', () => {
 
     const events: any[] = [];
     await new Promise<void>((resolve, reject) => {
-      service
-        .chatStream('Check ORD-001 and ORD-002', 'session-1')
-        .subscribe({
-          next: (event) => events.push(event),
-          error: reject,
-          complete: resolve,
-        });
+      service.chatStream('Check ORD-001 and ORD-002', 'session-1').subscribe({
+        next: (event) => events.push(event),
+        error: reject,
+        complete: resolve,
+      });
     });
 
     expect(ordersService.getOrderStatus).toHaveBeenCalledTimes(2);
@@ -439,7 +459,7 @@ describe('ChatService', () => {
     ordersService.getOrderStatus.mockResolvedValue({
       orderNumber: 'ORD-001',
       status: 'shipped',
-    } as any);
+    });
 
     const toolCallContent = {
       parts: [
@@ -452,7 +472,7 @@ describe('ChatService', () => {
       ],
     };
 
-    async function* toolCallStream() {
+    function* toolCallStream() {
       yield { candidates: [{ content: toolCallContent }], text: () => '' };
     }
 
