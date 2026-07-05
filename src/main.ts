@@ -1,10 +1,18 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Railway sits in front of this app as a single reverse-proxy hop.
+  // Trusting exactly 1 hop (not `true`, which would trust the entire,
+  // spoofable X-Forwarded-For chain) makes Express set req.ip to the real
+  // client IP, which the rate limiter's default IP-based tracker relies on.
+  app.set('trust proxy', 1);
+
   app.enableCors({
     origin: '*',
   });

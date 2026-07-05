@@ -8,6 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiExcludeEndpoint } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { timingSafeEqual } from 'crypto';
 import { FaqService } from './faq.service';
 
@@ -22,6 +23,7 @@ export class FaqController {
   @Post('seed')
   @HttpCode(HttpStatus.OK)
   @ApiExcludeEndpoint()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async seed(@Headers('x-seed-secret') providedSecret?: string) {
     const expectedSecret = process.env.FAQ_SEED_SECRET;
     if (!expectedSecret || !isMatchingSecret(providedSecret, expectedSecret)) {

@@ -71,6 +71,11 @@ ConversationsService.saveMessage()  ──▶  persist user + model turns (Postg
   behavior as `POST /chat`.
 - **Input validation** — request bodies/query params are validated with
   `class-validator` via a global `ValidationPipe`.
+- **Rate limiting** — `@nestjs/throttler` caps `POST /chat` and
+  `GET /chat/stream` at 10 requests/minute per IP (30/minute default
+  elsewhere, `POST /faq/seed` at 5/minute), to guard the paid Gemini quota
+  from abuse. `GET /` is exempt. Keys off the real client IP behind Railway's
+  reverse proxy (`trust proxy` is configured for exactly one hop).
 - **Grounded responses** — the system prompt forces the model to say "I don't
   have that information" rather than hallucinate, and to self-report a
   confidence level.
@@ -217,6 +222,19 @@ data: [DONE]
 Re-seeds the FAQ table. Requires an `x-seed-secret` header matching
 `FAQ_SEED_SECRET`. See [Getting started](#getting-started) above.
 
+### Rate limiting
+
+`POST /chat` and `GET /chat/stream` are limited to 10 requests/minute per IP;
+everything else falls back to a default of 30/minute, except `POST /faq/seed`
+(5/minute) and `GET /` (exempt). Exceeding the limit returns:
+
+```
+HTTP/1.1 429 Too Many Requests
+```
+```json
+{ "statusCode": 429, "message": "ThrottlerException: Too Many Requests" }
+```
+
 ## Testing
 
 ```bash
@@ -238,7 +256,9 @@ every push/PR to `main` against a fresh Postgres service container (with
 This is a portfolio/demo project, not production-hardened:
 
 - No authentication/authorization on the chat endpoints.
-- No rate limiting on an endpoint that calls a paid external API.
 - No migration system — `synchronize` is disabled (to avoid unintended schema
   changes against a shared dev/prod database), so table creation/schema
   changes currently have to be applied manually.
+- Rate limiting uses in-memory storage (fine for the current single-instance
+  deployment); it would need a shared store (e.g. Redis) to work correctly
+  across multiple instances.

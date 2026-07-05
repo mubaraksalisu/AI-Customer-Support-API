@@ -6,7 +6,9 @@ import {
   ApiProduces,
   ApiResponse,
   ApiTags,
+  ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { ChatService } from './chat.service';
 import { Observable } from 'rxjs';
 import { ChatRequestDto } from './dto/chat-request.dto';
@@ -15,6 +17,7 @@ import { ChatResponseDto } from './dto/chat-response.dto';
 import { ConversationsService } from '../conversations/conversations.service';
 
 @ApiTags('chat')
+@Throttle({ default: { limit: 10, ttl: 60_000 } })
 @Controller('chat')
 export class ChatController {
   constructor(
@@ -36,6 +39,9 @@ export class ChatController {
   })
   @ApiResponse({ status: 201, type: ChatResponseDto })
   @ApiBadRequestResponse({ description: 'Validation failed' })
+  @ApiTooManyRequestsResponse({
+    description: 'Rate limit exceeded (10 requests/minute per IP).',
+  })
   async Chat(
     @Body() body: ChatRequestDto,
     @Headers('x-session-id') sessionId?: string,
@@ -60,6 +66,9 @@ export class ChatController {
       'text/event-stream. Emits a leading `event: session` message with the resolved session ID, followed by plain-text answer chunks, then a `data: [DONE]` event.',
   })
   @ApiBadRequestResponse({ description: 'Validation failed' })
+  @ApiTooManyRequestsResponse({
+    description: 'Rate limit exceeded (10 requests/minute per IP).',
+  })
   streamChat(
     @Query() query: ChatStreamQueryDto,
     @Query('sessionId') sessionId?: string,
