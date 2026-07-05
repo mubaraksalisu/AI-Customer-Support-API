@@ -6,6 +6,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Faq } from './faq/entities/faq.entity';
 import { OrdersModule } from './orders/orders.module';
 import { Order } from './orders/entities/order.entity';
+import { ConversationsModule } from './conversations/conversations.module';
+import { Conversation } from './conversations/entities/conversation.entity';
 
 function validateEnv(env: Record<string, unknown>) {
   const required = ['GEMINI_API_KEY', 'DATABASE_URL'];
@@ -24,12 +26,13 @@ function validateEnv(env: Record<string, unknown>) {
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
-      entities: [Faq, Order],
+      entities: [Faq, Order, Conversation],
       synchronize: false,
     }),
     ChatModule,
     FaqModule,
     OrdersModule,
+    ConversationsModule,
   ],
 })
 export class AppModule {}

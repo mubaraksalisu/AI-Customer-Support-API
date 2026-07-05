@@ -7,6 +7,7 @@ import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { Faq } from '../src/faq/entities/faq.entity';
 import { Order } from '../src/orders/entities/order.entity';
+import { FaqService } from '../src/faq/faq.service';
 
 const mockEmbedContent = jest.fn();
 const mockGenerateContent = jest.fn();
@@ -63,12 +64,15 @@ describe('AI Chat Bot (e2e)', () => {
     orderRepository = moduleFixture.get(getRepositoryToken(Order));
 
     // Reset to a known state so this test doesn't depend on whatever is
-    // already in the shared dev database — FaqService only (re)seeds when
-    // the table is empty.
-    await faqRepository.query('DELETE FROM faq');
+    // already in the shared dev database.
     await orderRepository.query('DELETE FROM orders');
 
-    await app.init(); // triggers FaqService.onModuleInit(), seeding with the mocked embeddings
+    await app.init();
+
+    // FAQ seeding is decoupled from app bootstrap (see `npm run seed:faq` /
+    // POST /faq/seed) so it must be triggered explicitly here, using the
+    // mocked embeddings.
+    await moduleFixture.get(FaqService).seedFaqs();
 
     await orderRepository.save(
       orderRepository.create({
@@ -108,6 +112,7 @@ describe('AI Chat Bot (e2e)', () => {
       confidence: 'high',
       tool_used: false,
       context_used: expect.any(Array),
+      sessionId: expect.any(String),
     });
     expect(res.body.context_used.length).toBeGreaterThan(0);
   });
@@ -145,6 +150,7 @@ describe('AI Chat Bot (e2e)', () => {
       confidence: 'high',
       tool_used: true,
       context_used: expect.any(Array),
+      sessionId: expect.any(String),
     });
   });
 

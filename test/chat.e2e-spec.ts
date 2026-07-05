@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { ChatController } from '../src/chat/chat.controller';
 import { ChatService } from '../src/chat/chat.service';
+import { ConversationsService } from '../src/conversations/conversations.service';
 
 describe('Chat validation (e2e)', () => {
   let app: INestApplication<App>;
@@ -18,10 +19,17 @@ describe('Chat validation (e2e)', () => {
     chatStream: jest.fn(),
   };
 
+  const conversationServiceMock = {
+    generateSessionId: jest.fn().mockReturnValue('mocked-session-id'),
+  };
+
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       controllers: [ChatController],
-      providers: [{ provide: ChatService, useValue: chatServiceMock }],
+      providers: [
+        { provide: ChatService, useValue: chatServiceMock },
+        { provide: ConversationsService, useValue: conversationServiceMock },
+      ],
     }).compile();
 
     app = moduleFixture.createNestApplication();

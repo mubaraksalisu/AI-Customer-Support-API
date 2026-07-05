@@ -22,9 +22,16 @@ export class ChatResponseDto {
   tool_used: boolean;
 
   @ApiProperty({
-    description: 'The FAQ questions retrieved and used as context for this answer.',
+    description:
+      'The FAQ questions retrieved and used as context for this answer.',
     type: [String],
     example: ['What are your business hours?'],
   })
   context_used: string[];
+
+  @ApiProperty({
+    description: 'The session ID for the conversation.',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  sessionId: string;
 }
