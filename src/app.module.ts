@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
 import { ChatModule } from './chat/chat.module';
 import { FaqModule } from './faq/faq.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -34,5 +35,6 @@ function validateEnv(env: Record<string, unknown>) {
     OrdersModule,
     ConversationsModule,
   ],
+  controllers: [AppController],
 })
 export class AppModule {}
