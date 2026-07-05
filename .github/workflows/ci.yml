@@ -24,8 +24,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-        volumes:
-          - ${{ github.workspace }}/docker/init:/docker-entrypoint-initdb.d
 
     env:
       DATABASE_URL: postgres://admin:admin123@localhost:5432/ai-chat-bot
@@ -42,6 +40,17 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+
+      # Service containers start before checkout and can't safely bind-mount
+      # the workspace (a prior attempt at that broke post-job cleanup with
+      # EACCES, since the container process changes ownership on the mounted
+      # path). Enable the extension directly instead of via an init script.
+      - name: Enable pgvector extension
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          PGPASSWORD=admin123 psql -h localhost -U admin -d ai-chat-bot \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
       - name: Install dependencies
         run: npm ci
