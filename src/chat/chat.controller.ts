@@ -1,6 +1,7 @@
 import { Body, Controller, Headers, Post, Query, Sse } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiHeader,
   ApiOperation,
   ApiProduces,
   ApiResponse,
@@ -22,7 +23,17 @@ export class ChatController {
   ) {}
 
   @Post()
-  @ApiOperation({ summary: 'Ask the support agent a question' })
+  @ApiOperation({
+    summary: 'Ask the support agent a question',
+    description:
+      'Answers using conversation history for the given session, RAG over the FAQ knowledge base, and the check_order_status tool when relevant.',
+  })
+  @ApiHeader({
+    name: 'x-session-id',
+    required: false,
+    description:
+      'Session ID to continue an existing conversation. Omit to start a new one — the resolved ID is always returned in the response.',
+  })
   @ApiResponse({ status: 201, type: ChatResponseDto })
   @ApiBadRequestResponse({ description: 'Validation failed' })
   async Chat(
@@ -39,8 +50,15 @@ export class ChatController {
   @Sse('stream')
   @ApiOperation({
     summary: 'Ask a question and stream the answer via Server-Sent Events',
+    description:
+      'Shares the same conversation history, RAG, and check_order_status tool-calling behavior as POST /chat, but streams the answer.',
   })
   @ApiProduces('text/event-stream')
+  @ApiResponse({
+    status: 200,
+    description:
+      'text/event-stream. Emits a leading `event: session` message with the resolved session ID, followed by plain-text answer chunks, then a `data: [DONE]` event.',
+  })
   @ApiBadRequestResponse({ description: 'Validation failed' })
   streamChat(
     @Query() query: ChatStreamQueryDto,

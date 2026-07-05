@@ -2,39 +2,55 @@
 
 A NestJS backend for an AI-powered customer support agent. It answers customer
 questions using **retrieval-augmented generation (RAG)** over a business FAQ
-knowledge base, and can call a **tool** to look up real order status from a
-Postgres database — all backed by Google Gemini.
+knowledge base, can call a **tool** to look up real order status from a
+Postgres database, and remembers **multi-turn conversation history** per
+session — all backed by Google Gemini, available both as a regular JSON
+response (`POST /chat`) and as a token-by-token stream (`GET /chat/stream`).
 
 ## How it works
 
-1. A customer question comes in through `POST /chat`.
-2. The question is embedded and matched against FAQ entries stored in Postgres
+1. A customer question comes in through `POST /chat` or `GET /chat/stream`,
+   along with an optional session id (`x-session-id` header for `/chat`,
+   `sessionId` query param for `/chat/stream`). If omitted, a new session id
+   is generated and returned to the caller so follow-up questions can reuse it.
+2. Prior turns for that session are loaded from Postgres (`ConversationsService`)
+   and prepended to the prompt, so the model has multi-turn context.
+3. The question is embedded and matched against FAQ entries stored in Postgres
    using [pgvector](https://github.com/pgvector/pgvector) cosine similarity —
    this is the retrieval step.
-3. The top matching FAQs are injected into the prompt as context, along with a
+4. The top matching FAQs are injected into the prompt as context, along with a
    system prompt that constrains the model to only answer from that context.
-4. If the customer is asking about an order, Gemini calls the
-   `check_order_status` tool instead of answering directly. The server executes
-   the real lookup against the `orders` table and sends the result back to the
-   model for a final answer.
-5. The model's response is parsed out of `<answer>`/`<confidence>` tags and
-   returned as structured JSON.
+5. If the customer is asking about an order, Gemini calls the
+   `check_order_status` tool instead of answering directly (looping up to 5
+   rounds if needed). The server executes the real lookup against the
+   `orders` table and sends the result back to the model for a final answer.
+6. The user's question and the model's final answer are both saved back to
+   the session's history for the next turn.
+7. For `POST /chat`, the model's response is parsed out of `<answer>`/
+   `<confidence>` tags and returned as structured JSON. For `GET /chat/stream`,
+   plain-text answer chunks are streamed over Server-Sent Events, preceded by
+   a leading `event: session` event carrying the resolved session id.
 
 ```
-Customer question
+Customer question + sessionId
+      │
+      ▼
+ConversationsService.getHistory()  ──▶  prior turns (Postgres)
       │
       ▼
 FaqService.findRelevant()  ──▶  pgvector similarity search (Postgres)
       │
       ▼
-ChatService.chat()  ──▶  Gemini (with FAQ context + check_order_status tool)
+ChatService.chat() / .chatStream()  ──▶  Gemini (history + FAQ context + check_order_status tool)
       │                              │
-      │                              ▼ (if tool call requested)
+      │                              ▼ (if tool call requested, up to 5 rounds)
       │                        OrdersService.getOrderStatus()  ──▶  Postgres
       │                              │
       ◀──────────────────────────────┘
       ▼
-{ answer, confidence, tool_used, context_used }
+ConversationsService.saveMessage()  ──▶  persist user + model turns (Postgres)
+      ▼
+{ answer, confidence, tool_used, context_used, sessionId }  (or an SSE stream)
 ```
 
 ## Features
@@ -42,10 +58,15 @@ ChatService.chat()  ──▶  Gemini (with FAQ context + check_order_status too
 - **RAG-based FAQ answering** — FAQ entries are embedded with Gemini
   (`gemini-embedding-001`) and stored in Postgres as vectors; retrieval uses a
   pgvector `<=>` (cosine distance) query.
+- **Multi-turn conversation history** — each session's turns are persisted in
+  Postgres and replayed to the model on every request, for both `/chat` and
+  `/chat/stream`.
 - **Tool/function calling** — the model can invoke `check_order_status` to look
-  up a real order by number, rather than guessing.
+  up a real order by number, rather than guessing, looping up to 5 rounds if
+  multiple tool calls are needed.
 - **Streaming responses** — `GET /chat/stream` streams the model's answer
-  token-by-token over Server-Sent Events.
+  token-by-token over Server-Sent Events, with the same history/tool-calling
+  behavior as `POST /chat`.
 - **Input validation** — request bodies/query params are validated with
   `class-validator` via a global `ValidationPipe`.
 - **Grounded responses** — the system prompt forces the model to say "I don't
@@ -63,9 +84,11 @@ ChatService.chat()  ──▶  Gemini (with FAQ context + check_order_status too
 
 ```
 src/
-├── chat/           # /chat controller, RAG + tool-calling orchestration, DTOs
-├── faq/             # FAQ entity, embedding + pgvector similarity search
+├── chat/            # /chat + /chat/stream controllers, RAG + tool-calling orchestration, DTOs
+├── conversations/   # Conversation entity + service — per-session message history
+├── faq/             # FAQ entity, embedding + pgvector similarity search, seed data/script
 ├── orders/          # Order entity, order-status lookup used by the tool call
+├── app.controller.ts # GET / readiness route
 └── main.ts          # app bootstrap, global ValidationPipe
 docker/
 └── init/            # SQL run on first Postgres container start (enables pgvector)
@@ -85,13 +108,27 @@ docker-compose.yml   # Postgres + pgvector for local development
 
 ```bash
 npm install
-cp .env.example .env   # then fill in GEMINI_API_KEY
+cp .env.example .env   # then fill in GEMINI_API_KEY and FAQ_SEED_SECRET
 docker compose up -d   # starts Postgres with pgvector enabled
 npm run start:dev
 ```
 
-On first boot, `FaqService` seeds the FAQ table automatically. The `orders`
-table starts empty — to test the `check_order_status` tool, insert a row:
+FAQ seeding is decoupled from app startup — the app does **not** seed itself
+on boot. Seed the FAQ table with:
+
+```bash
+npm run seed:faq
+```
+
+or, on hosts with no shell access (e.g. Render/Railway free tiers), send the
+seed request over HTTP with the secret from `FAQ_SEED_SECRET`:
+
+```bash
+curl -X POST http://localhost:3000/faq/seed -H "x-seed-secret: $FAQ_SEED_SECRET"
+```
+
+The `orders` table starts empty — to test the `check_order_status` tool,
+insert a row:
 
 ```sql
 INSERT INTO orders (order_number, customer_name, status, item)
@@ -100,21 +137,32 @@ VALUES ('ORD-001', 'Jane Doe', 'shipped', 'Wireless Mouse');
 
 ### Environment variables
 
-| Variable          | Description                                                                  |
-| ----------------- | ----------------------------------------------------------------------------- |
-| `GEMINI_API_KEY`  | API key for Google Gemini                                                     |
-| `DATABASE_URL`    | Postgres connection string (e.g. `postgres://admin:admin123@localhost:5432/ai-chat-bot`; on Railway set to `${{ Postgres.DATABASE_URL }}`) |
+| Variable           | Description                                                                  |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `GEMINI_API_KEY`   | API key for Google Gemini                                                     |
+| `DATABASE_URL`     | Postgres connection string (e.g. `postgres://admin:admin123@localhost:5432/ai-chat-bot`; on Railway set to `${{ Postgres.DATABASE_URL }}`) |
+| `FAQ_SEED_SECRET`  | Secret required to call `POST /faq/seed` in environments with no shell access. Set a long random value in production. |
 
 ## API
 
 Interactive OpenAPI docs are served at `http://localhost:3000/docs` once the
 app is running (raw spec at `/docs-json`).
 
+### `GET /`
+
+Plain readiness check — returns `"App ready to process request"`. Useful as
+an uptime-monitor or host health-check target.
+
 ### `POST /chat`
+
+Pass an `x-session-id` header to continue an existing conversation; omit it
+to start a new one — the resolved id is always returned in the response so
+the client can reuse it on the next request.
 
 ```bash
 curl -X POST http://localhost:3000/chat \
   -H 'Content-Type: application/json' \
+  -H 'x-session-id: 123e4567-e89b-12d3-a456-426614174000' \
   -d '{"question":"What are your business hours?"}'
 ```
 
@@ -123,17 +171,39 @@ curl -X POST http://localhost:3000/chat \
   "answer": "We are open Monday to Saturday, 8am to 6pm WAT.",
   "confidence": "high",
   "tool_used": false,
-  "context_used": ["What are your business hours?", "..."]
+  "context_used": ["What are your business hours?", "..."],
+  "sessionId": "123e4567-e89b-12d3-a456-426614174000"
 }
 ```
 
 ### `GET /chat/stream`
 
-Streams the answer as Server-Sent Events, ending with a `[DONE]` event.
+Streams the answer as Server-Sent Events, sharing the same conversation
+history and tool-calling behavior as `POST /chat`. Pass a `sessionId` query
+param to continue an existing conversation; omit it to start a new one. The
+resolved session id is always sent first as a leading `event: session`
+message (since a plain SSE stream has no JSON body to return it in), followed
+by plain-text answer chunks, ending with a `data: [DONE]` event.
 
 ```bash
-curl -N "http://localhost:3000/chat/stream?question=What+are+your+delivery+options"
+curl -N "http://localhost:3000/chat/stream?question=What+are+your+delivery+options&sessionId=123e4567-e89b-12d3-a456-426614174000"
 ```
+
+```
+event: session
+data: 123e4567-e89b-12d3-a456-426614174000
+
+data: We offer standard delivery
+
+data:  (3-5 business days)...
+
+data: [DONE]
+```
+
+### `POST /faq/seed`
+
+Re-seeds the FAQ table. Requires an `x-seed-secret` header matching
+`FAQ_SEED_SECRET`. See [Getting started](#getting-started) above.
 
 ## Testing
 
@@ -143,10 +213,15 @@ npm run test:e2e  # integration tests (HTTP + validation pipeline)
 npm run test:cov  # coverage report
 ```
 
+`npm run test:e2e` boots the real `AppModule` against Postgres (only the
+Gemini SDK is mocked), so `docker compose up -d` must be running first.
+
 ## Known limitations
 
 This is a portfolio/demo project, not production-hardened:
 
 - No authentication/authorization on the chat endpoints.
 - No rate limiting on an endpoint that calls a paid external API.
-- `synchronize: true` is used for schema sync instead of migrations.
+- No migration system — `synchronize` is disabled (to avoid unintended schema
+  changes against a shared dev/prod database), so table creation/schema
+  changes currently have to be applied manually.
